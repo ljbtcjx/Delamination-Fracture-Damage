@@ -1,0 +1,265 @@
+
+# ========================== 1. 初始化 ==========================
+units metal
+boundary s p p
+dimension 3    
+atom_style atomic
+neighbor 5.0 bin  
+neigh_modify   every 1 delay 0 check yes one 2000
+timestep       0.001
+
+region box block -10 130 -10 120 -30 50 units box
+create_box 3 box
+
+# ========================== 3. 生成SiC基体（下层） ==========================
+lattice         custom  4.259 a1 1.0 0.0 0.0 a2 0.0 1.0 0.0  a3 0.0 0.0 1.0 &
+                                   basis 0.0 0.0 0.0  &
+                                    basis 0.5 0.5 0.0  &
+                                     basis 0.5 0.0 0.5 &
+                                     basis  0.0 0.5 0.5 &
+                                     basis   0.25 0.25 0.25 &
+                                     basis   0.75 0.75 0.25  &
+                                     basis   0.75 0.25 0.75  &
+                                     basis    0.25 0.75 0.75 
+region              SIC1 block 0 120 0 110 -20 6 units box
+create_atoms        2 region SIC1 &
+        basis 1 1 &  
+        basis 2 1 &
+        basis 3 1 &
+        basis 4 2 &
+        basis 5 2 &  
+        basis 6 2 &
+        basis 7 2 &
+        basis 8 2   
+  
+group SIC1 region SIC1
+mass 1 12.01 
+mass 2 28.09
+variable        z_max equal bound(all,zmax)
+variable        z_cut equal ${z_max}-1.5
+region          top_surface block 0 130 0 120 ${z_cut} ${z_max} units box
+group           reg_group region top_surface
+group           type1_group type 1
+group           del_group intersect reg_group type1_group
+delete_atoms    group del_group
+# Middle graphitic/C layers (3层，适配本模型XY:0~120,0~110，删除非法小数origin)
+variable        z_surface equal bound(all,zmax)
+variable        z_graph equal ${z_surface}+3.1
+variable        lz_graph equal 2.4768*1.3727
+variable        z_orig equal ${z_graph}/${lz_graph}-floor(${z_graph}/${lz_graph})
+
+# 石墨烯晶格 origin固定0 0 0，禁止小数偏移（原z_orig会报错直接删掉）
+lattice custom 2.4768 &
+        a1 1.0 0.0   0.0 &
+        a2 0.0 1.732 0.0 &
+        a3 0.0 0.0   1.3727 &
+        basis 0.0 0.33333 0.0 &
+        basis 0.0 0.66667 0.0 &
+        basis 0.5 0.16667 0.0 &
+        basis 0.5 0.83333 0.0 &
+        origin 0.0 0.0 ${z_orig}
+
+# Middle graphitic/C layer number = 3.
+# The interlayer spacing along z is lz_graph = 2.4768*1.3727 ≈ 3.40 A.
+# The first C layer is located near z_graph, and the last C layer is located near z_graph_top.
+variable        graph_layers equal 3
+variable        z_graph_top equal ${z_graph}+(${graph_layers}-1)*${lz_graph}
+variable        graph_half equal 0.5
+variable        z_graph_high equal ${z_graph_top}+${graph_half}
+variable        z_graph_low  equal ${z_graph}-${graph_half}
+# XY修正为和SiC一致 0 120 0 110，不再用0 170超界
+region          graph_reg block 0 120 0 110 ${z_graph_low} ${z_graph_high} units box
+create_atoms    3 region graph_reg
+group           graph_layer region graph_reg
+mass                3 12.0
+
+variable        z_top_SiC_start equal ${z_graph_top}+3.1
+variable        z_top_SiC_end equal ${z_top_SiC_start}+26.0
+lattice         custom  4.259 a1 1.0 0.0 0.0 a2 0.0 1.0 0.0  a3 0.0 0.0 1.0 &
+                                   basis 0.0 0.0 0.0  &
+                                    basis 0.5 0.5 0.0  &
+                                     basis 0.5 0.0 0.5 &
+                                     basis  0.0 0.5 0.5 &
+                                     basis   0.25 0.25 0.25 &
+                                     basis   0.75 0.75 0.25  &
+                                     basis   0.75 0.25 0.75  &
+                                     basis    0.25 0.75 0.75 
+region          top_SiC_reg block 0 120 0 110 ${z_top_SiC_start} ${z_top_SiC_end} units box
+create_atoms        2 region  top_SiC_reg &
+        basis 1 1 &  
+        basis 2 1 &
+        basis 3 1 &
+        basis 4 2 &
+        basis 5 2 &  
+        basis 6 2 &
+        basis 7 2 &
+        basis 8 2   
+
+
+group           top_SiC_group region top_SiC_reg
+#variable        z_top_min equal bound(top_SiC_group,zmin)
+#variable        z_top_cut equal ${z_top_min}+1.5
+#region          bot_surface_of_top block 0 170 0 170 ${z_top_min} ${z_top_cut} units box
+#group           bot_surf_group region bot_surface_of_top
+#group           all_C_atoms type 1
+#group           del_top_group intersect bot_surf_group all_C_atoms
+#delete_atoms    group del_top_group
+
+#
+region         boundary1     block  0 120  0 110 -20 -15  units box
+region         boundary2     block  0 120  0 110  30 35  units box
+region      boundary union 2 boundary1 boundary2 units box
+region         temp_layer1   block   0 120  0 110  -15 -10  units box
+region         temp_layer2   block   0 120  0 110  25 30  units box
+region     temp_layer union 2 temp_layer1 temp_layer2 units box
+region         newton_layer   block  0 120  0 110 -10 25 units box 
+group      boundary   region boundary
+group      temp_layer  region  temp_layer
+group      newton_layer  region  newton_layer
+group          newton_temp union newton_layer temp_layer
+
+pair_style hybrid/overlay tersoff airebo 3.0 lj/cut 9.8
+pair_coeff * * tersoff SiC.tersoff C Si NULL
+pair_coeff * * airebo CH.airebo NULL NULL C
+pair_coeff 3 1 lj/cut 0.00455 3.431
+pair_coeff 3 2 lj/cut 0.00891 3.431 
+pair_coeff 1 1 lj/cut 0.0 0.0
+pair_coeff 1 2 lj/cut 0.0 0.0
+pair_coeff 2 2 lj/cut 0.0 0.0
+pair_coeff 3 3 lj/cut 0.0 0.0
+
+# 10.2 定义拉伸区域 
+region left_fix block 0 20 INF INF INF INF units box
+region right_pull block 110 130 INF INF INF INF units box
+
+group left_fix region left_fix
+group right_pull region right_pull
+
+# ========================== 7. 能量最小化 ==========================
+#能量最小化
+dump 1 all atom 1000 mini.xyz 
+thermo    1000
+min_style cg 
+minimize  1.0e-8 1.0e-8 5000 5000 
+undump    1
+reset_timestep 0 
+#1000步输出一次
+thermo		1000
+thermo_style	custom step temp etotal ke pe press pxx pyy pzz
+
+# ========================== 8. 弛豫准备 (NVT) ==========================
+velocity left_fix set 0.0 0.0 0.0
+velocity right_pull set 0.0 0.0 0.0
+fix freeze_left left_fix setforce 0.0 0.0 0.0
+fix freeze_right right_pull setforce 0.0 0.0 0.0
+group mobile subtract all left_fix right_pull
+velocity mobile create 50 778945 dist gaussian
+fix 1 mobile nve
+fix 2 mobile langevin 50 50 0.1 45678
+run 10000
+
+unfix 2
+fix 2 mobile langevin 50 300 0.1 45678
+run 20000
+
+unfix 2
+fix 2 mobile langevin 300 300 0.1 45678
+run 10000
+# 弛豫结束
+unfix 2
+unfix freeze_left
+unfix freeze_right
+reset_timestep 0
+write_data initial_sandwich.data
+
+dump 1 all custom 100 relax.lammpstrj id type x y z
+fix temp_eq mobile langevin 300 300 0.1 112233
+# ========================== 9. 轨迹输出与弛豫运行 ==========================
+run 50000
+unfix temp_eq
+unfix 1
+undump 1
+# ========================== 10. 拉伸阶段设置 ==========================
+
+compute com_left left_fix com
+compute com_right right_pull com
+run 0
+
+variable L0 equal c_com_right[1]-c_com_left[1]
+variable L0fix equal ${L0}
+variable delta_L equal c_com_right[1]-c_com_left[1]-${L0fix}
+variable strain equal v_delta_L/${L0fix}
+
+# 系统量转成可输出变量
+variable STEP equal step
+variable PE equal pe
+variable KE equal ke
+variable ET equal etotal
+variable PXX equal pxx
+variable PYY equal pyy
+variable PZZ equal pzz
+
+# 检查原子数
+variable nleft equal count(left_fix)
+variable nright equal count(right_pull)
+variable nmobile equal count(mobile)
+print "N_left = ${nleft}"
+print "N_right = ${nright}"
+print "N_mobile = ${nmobile}"
+
+fix freeze_left left_fix setforce 0.0 0.0 0.0
+
+variable v_pull equal 0.1
+fix pull_right right_pull move linear ${v_pull} 0.0 0.0 units box
+
+fix thermostat mobile nvt temp 300 300 0.5
+
+compute myStress all stress/atom NULL
+compute pe_all all pe
+compute ke_all all ke
+
+compute pe_left left_fix pe/atom
+compute pe_right right_pull pe/atom
+compute pe_mobile mobile pe/atom
+
+compute reducePeLeft left_fix reduce sum c_pe_left
+compute reducePeRight right_pull reduce sum c_pe_right
+compute reducePeMobile mobile reduce sum c_pe_mobile
+
+run 0
+variable PE_ref equal c_pe_all
+
+variable PE_total equal c_pe_all
+variable KE_total equal c_ke_all
+variable etotal equal c_pe_all + c_ke_all
+variable PE_left equal c_reducePeLeft
+variable PE_right equal c_reducePeRight
+variable PE_mobile equal c_reducePeMobile
+variable Dissipated equal v_PE_total - v_PE_ref
+
+compute reduceStress all reduce sum c_myStress[1] c_myStress[2] c_myStress[3] c_myStress[4] c_myStress[5] c_myStress[6]
+
+variable vol equal lx*ly*lz
+variable stress_xx equal "-c_reduceStress[1]/v_vol"
+variable stress_yy equal "-c_reduceStress[2]/v_vol"
+variable stress_zz equal "-c_reduceStress[3]/v_vol"
+variable stress_xy equal "-c_reduceStress[4]/v_vol"
+variable stress_xz equal "-c_reduceStress[5]/v_vol"
+variable stress_yz equal "-c_reduceStress[6]/v_vol"
+
+variable vm_global equal sqrt(0.5*((v_stress_xx-v_stress_yy)^2 + (v_stress_yy-v_stress_zz)^2 + (v_stress_zz-v_stress_xx)^2 + 6*(v_stress_xy^2 + v_stress_xz^2 + v_stress_yz^2)))
+
+compute coord_all all coord/atom cutoff 2.0
+compute coord_reduce all reduce ave c_coord_all
+variable coord_avg equal c_coord_reduce
+
+thermo 100
+thermo_style custom step temp v_strain pe ke etotal press pxx pyy pzz v_PE_total v_PE_left v_PE_right v_PE_mobile v_Dissipated v_coord_avg v_stress_xx v_stress_yy v_stress_zz v_stress_xy v_stress_xz v_stress_yz v_vm_global
+thermo_modify format float %12.6f
+
+dump 2 all custom 500 dump.stretching_x id type x y z vx vy vz c_myStress[1] c_myStress[2] c_myStress[3] c_myStress[4] c_myStress[5] c_myStress[6] c_coord_all
+dump_modify 2 sort id
+
+fix out_all all print 1 "${STEP} ${strain} ${PE} ${KE} ${ET} ${PE_total} ${PE_left} ${PE_right} ${PE_mobile} ${Dissipated} ${coord_avg} ${stress_xx} ${stress_yy} ${stress_zz} ${vm_global}" file stretch_energy_stress.dat screen no
+
+run 600000
